@@ -28,12 +28,13 @@ pub fn encodedSize(msg: anytype) usize {
 
 /// Encode a protobuf message directly to a file.
 /// The message type must have a `pub const _fields` declaration.
-pub fn encodeToFile(msg: anytype, filename: []const u8, io: std.Io) !void {
+pub fn encodeToFile(msg: anytype, filename: []const u8, io: std.Io, options: types.FileOptions) !void {
     const cwd = std.Io.Dir.cwd();
     const file = try cwd.createFile(io, filename, .{});
     defer file.close(io);
-    var write_buf: [4096]u8 = undefined;
-    var fw = file.writer(io, &write_buf);
+    var default_buf: [4096]u8 = undefined;
+    const buf = options.buffer orelse &default_buf;
+    var fw = file.writer(io, buf);
     try encode(msg, &fw.interface);
     try fw.interface.flush();
 }
@@ -471,7 +472,7 @@ test "encodeToFile writes correct data" {
     const io = threaded.io();
     const msg = SimpleMsg{ .id = 42, .name = "file test", .active = true };
 
-    try encodeToFile(msg, "/tmp/zoto_encode_test.pb", io);
+    try encodeToFile(msg, "/tmp/zoto_encode_test.pb", io, .{});
 
     // Read back and verify it matches encodeToSlice
     var buf: [64]u8 = undefined;
@@ -479,6 +480,28 @@ test "encodeToFile writes correct data" {
 
     const cwd = std.Io.Dir.cwd();
     const file = try cwd.openFile(io, "/tmp/zoto_encode_test.pb", .{ .mode = .read_only });
+    defer file.close(io);
+    var read_buf: [4096]u8 = undefined;
+    var fr = file.reader(io, &read_buf);
+    const file_data = try fr.interface.allocRemaining(testing.allocator, .unlimited);
+    defer testing.allocator.free(file_data);
+
+    try testing.expectEqualSlices(u8, buf[0..n], file_data);
+}
+
+test "encodeToFile with custom buffer" {
+    var threaded = std.Io.Threaded.init(testing.allocator, .{});
+    const io = threaded.io();
+    const msg = SimpleMsg{ .id = 99, .name = "custom buf", .active = true };
+
+    var custom_buf: [128]u8 = undefined;
+    try encodeToFile(msg, "/tmp/zoto_encode_custbuf.pb", io, .{ .buffer = &custom_buf });
+
+    var buf: [64]u8 = undefined;
+    const n = try encodeToSlice(msg, &buf);
+
+    const cwd = std.Io.Dir.cwd();
+    const file = try cwd.openFile(io, "/tmp/zoto_encode_custbuf.pb", .{ .mode = .read_only });
     defer file.close(io);
     var read_buf: [4096]u8 = undefined;
     var fr = file.reader(io, &read_buf);

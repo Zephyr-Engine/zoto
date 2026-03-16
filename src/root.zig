@@ -7,6 +7,7 @@ pub const encode = encode_mod.encode;
 pub const encodeToSlice = encode_mod.encodeToSlice;
 pub const encodeToFile = encode_mod.encodeToFile;
 pub const encodedSize = encode_mod.encodedSize;
+pub const FileOptions = @import("types.zig").FileOptions;
 
 pub const decode = decode_mod.decode;
 pub const decodeFromSlice = decode_mod.decodeFromSlice;
@@ -144,9 +145,9 @@ test "public API: encodeToFile/decodeFromFile with _fields" {
     };
 
     const original = Msg{ .x = 42, .y = "file api" };
-    try encodeToFile(original, "/tmp/zoto_root_test.pb", io);
+    try encodeToFile(original, "/tmp/zoto_root_test.pb", io, .{});
 
-    const decoded = try decodeFromFile(Msg, "/tmp/zoto_root_test.pb", io, testing.allocator);
+    const decoded = try decodeFromFile(Msg, "/tmp/zoto_root_test.pb", io, testing.allocator, .{});
     defer deinit(decoded, testing.allocator);
     try testing.expectEqual(42, decoded.x);
     try testing.expectEqualStrings("file api", decoded.y);
@@ -160,10 +161,34 @@ test "public API: Message file roundtrip" {
     const M = Message(Def);
 
     const original: Def = .{ .id = 99, .name = "message file" };
-    try M.encodeToFile(original, "/tmp/zoto_root_msg_test.pb", io);
+    try M.encodeToFile(original, "/tmp/zoto_root_msg_test.pb", io, .{});
 
-    const decoded = try M.decodeFromFile("/tmp/zoto_root_msg_test.pb", io, testing.allocator);
+    const decoded = try M.decodeFromFile("/tmp/zoto_root_msg_test.pb", io, testing.allocator, .{});
     defer M.deinit(decoded, testing.allocator);
     try testing.expectEqual(99, decoded.id);
     try testing.expectEqualStrings("message file", decoded.name);
+}
+
+test "public API: file roundtrip with custom FileOptions buffer" {
+    var threaded = std.Io.Threaded.init(testing.allocator, .{});
+    const io = threaded.io();
+
+    const Msg = struct {
+        pub const _fields = .{
+            .x = .{ .number = 1 },
+            .y = .{ .number = 2 },
+        };
+        x: u32 = 0,
+        y: []const u8 = "",
+    };
+
+    const original = Msg{ .x = 55, .y = "options test" };
+    var write_buf: [256]u8 = undefined;
+    try encodeToFile(original, "/tmp/zoto_root_opts.pb", io, .{ .buffer = &write_buf });
+
+    var read_buf: [256]u8 = undefined;
+    const decoded = try decodeFromFile(Msg, "/tmp/zoto_root_opts.pb", io, testing.allocator, .{ .buffer = &read_buf });
+    defer deinit(decoded, testing.allocator);
+    try testing.expectEqual(55, decoded.x);
+    try testing.expectEqualStrings("options test", decoded.y);
 }

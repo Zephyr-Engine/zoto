@@ -37,22 +37,24 @@ pub fn MessageWith(comptime StructDef: type, comptime overrides: anytype) type {
             return decode_mod.decodeMessage(StructDef, _fields, &reader, @as(usize, data.len), allocator);
         }
 
-        pub fn encodeToFile(msg: StructDef, filename: []const u8, io: std.Io) !void {
+        pub fn encodeToFile(msg: StructDef, filename: []const u8, io: std.Io, options: types.FileOptions) !void {
             const cwd = std.Io.Dir.cwd();
             const file = try cwd.createFile(io, filename, .{});
             defer file.close(io);
-            var write_buf: [4096]u8 = undefined;
-            var fw = file.writer(io, &write_buf);
+            var default_buf: [4096]u8 = undefined;
+            const buf = options.buffer orelse &default_buf;
+            var fw = file.writer(io, buf);
             try encode_mod.encodeFields(StructDef, _fields, msg, &fw.interface);
             try fw.interface.flush();
         }
 
-        pub fn decodeFromFile(filename: []const u8, io: std.Io, allocator: std.mem.Allocator) !StructDef {
+        pub fn decodeFromFile(filename: []const u8, io: std.Io, allocator: std.mem.Allocator, options: types.FileOptions) !StructDef {
             const cwd = std.Io.Dir.cwd();
             const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
             defer file.close(io);
-            var read_buf: [4096]u8 = undefined;
-            var fr = file.reader(io, &read_buf);
+            var default_buf: [4096]u8 = undefined;
+            const buf = options.buffer orelse &default_buf;
+            var fr = file.reader(io, buf);
             const data = try fr.interface.allocRemaining(allocator, .unlimited);
             defer allocator.free(data);
             var reader = std.Io.Reader.fixed(data);
@@ -317,9 +319,9 @@ test "Message: encodeToFile/decodeFromFile roundtrip" {
     const io = threaded.io();
 
     const original: S = .{ .id = 123, .name = "file roundtrip" };
-    try M.encodeToFile(original, "/tmp/zoto_msg_test.pb", io);
+    try M.encodeToFile(original, "/tmp/zoto_msg_test.pb", io, .{});
 
-    const decoded = try M.decodeFromFile("/tmp/zoto_msg_test.pb", io, std.testing.allocator);
+    const decoded = try M.decodeFromFile("/tmp/zoto_msg_test.pb", io, std.testing.allocator, .{});
     defer M.deinit(decoded, std.testing.allocator);
 
     try std.testing.expectEqual(123, decoded.id);
@@ -335,11 +337,30 @@ test "Message: file roundtrip with nested struct" {
     const io = threaded.io();
 
     const original: Outer = .{ .label = "parent", .child = .{ .val = 55 } };
-    try M.encodeToFile(original, "/tmp/zoto_msg_nested_test.pb", io);
+    try M.encodeToFile(original, "/tmp/zoto_msg_nested_test.pb", io, .{});
 
-    const decoded = try M.decodeFromFile("/tmp/zoto_msg_nested_test.pb", io, std.testing.allocator);
+    const decoded = try M.decodeFromFile("/tmp/zoto_msg_nested_test.pb", io, std.testing.allocator, .{});
     defer M.deinit(decoded, std.testing.allocator);
 
     try std.testing.expectEqualStrings("parent", decoded.label);
     try std.testing.expectEqual(55, decoded.child.val);
+}
+
+test "Message: file roundtrip with custom buffer" {
+    const S = struct { id: u32 = 0, name: []const u8 = "" };
+    const M = Message(S);
+
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    const io = threaded.io();
+
+    const original: S = .{ .id = 256, .name = "custom buffer test" };
+    var write_buf: [512]u8 = undefined;
+    try M.encodeToFile(original, "/tmp/zoto_msg_custbuf.pb", io, .{ .buffer = &write_buf });
+
+    var read_buf: [512]u8 = undefined;
+    const decoded = try M.decodeFromFile("/tmp/zoto_msg_custbuf.pb", io, std.testing.allocator, .{ .buffer = &read_buf });
+    defer M.deinit(decoded, std.testing.allocator);
+
+    try std.testing.expectEqual(256, decoded.id);
+    try std.testing.expectEqualStrings("custom buffer test", decoded.name);
 }

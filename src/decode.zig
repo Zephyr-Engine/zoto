@@ -33,13 +33,14 @@ pub fn decodeFromSlice(comptime T: type, data: []const u8, allocator: std.mem.Al
 
 /// Decode a protobuf message from a file.
 /// The caller owns all returned memory — use `deinit` to free.
-pub fn decodeFromFile(comptime T: type, filename: []const u8, io: std.Io, allocator: std.mem.Allocator) !T {
+pub fn decodeFromFile(comptime T: type, filename: []const u8, io: std.Io, allocator: std.mem.Allocator, options: types.FileOptions) !T {
     comptime types.validateMessage(T);
     const cwd = std.Io.Dir.cwd();
     const file = try cwd.openFile(io, filename, .{ .mode = .read_only });
     defer file.close(io);
-    var read_buf: [4096]u8 = undefined;
-    var fr = file.reader(io, &read_buf);
+    var default_buf: [4096]u8 = undefined;
+    const buf = options.buffer orelse &default_buf;
+    var fr = file.reader(io, buf);
     const data = try fr.interface.allocRemaining(allocator, .unlimited);
     defer allocator.free(data);
     return decodeFromSlice(T, data, allocator);
@@ -848,13 +849,29 @@ test "decodeFromFile roundtrip" {
     const original = SimpleMsg{ .id = 77, .name = "from file", .active = true };
 
     // Write via encodeToFile
-    try encode_mod.encodeToFile(original, "/tmp/zoto_decode_test.pb", io);
+    try encode_mod.encodeToFile(original, "/tmp/zoto_decode_test.pb", io, .{});
 
     // Read back via decodeFromFile
-    const decoded = try decodeFromFile(SimpleMsg, "/tmp/zoto_decode_test.pb", io, testing.allocator);
+    const decoded = try decodeFromFile(SimpleMsg, "/tmp/zoto_decode_test.pb", io, testing.allocator, .{});
     defer deinit(decoded, testing.allocator);
 
     try testing.expectEqual(77, decoded.id);
     try testing.expectEqualStrings("from file", decoded.name);
     try testing.expect(decoded.active);
+}
+
+test "decodeFromFile with custom buffer" {
+    var threaded = std.Io.Threaded.init(testing.allocator, .{});
+    const io = threaded.io();
+
+    const original = SimpleMsg{ .id = 88, .name = "custom decode buf", .active = false };
+    try encode_mod.encodeToFile(original, "/tmp/zoto_decode_custbuf.pb", io, .{});
+
+    var custom_buf: [256]u8 = undefined;
+    const decoded = try decodeFromFile(SimpleMsg, "/tmp/zoto_decode_custbuf.pb", io, testing.allocator, .{ .buffer = &custom_buf });
+    defer deinit(decoded, testing.allocator);
+
+    try testing.expectEqual(88, decoded.id);
+    try testing.expectEqualStrings("custom decode buf", decoded.name);
+    try testing.expect(!decoded.active);
 }

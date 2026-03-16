@@ -62,6 +62,14 @@ pub fn isMessage(comptime T: type) bool {
     return @typeInfo(T) == .@"struct" and @hasDecl(T, "_fields");
 }
 
+/// Options for file-based encode/decode operations.
+pub const FileOptions = struct {
+    /// I/O buffer for file read/write operations. When null, a default
+    /// 4096-byte stack buffer is used. Provide a larger buffer for
+    /// messages that exceed 4096 bytes.
+    buffer: ?[]u8 = null,
+};
+
 /// Get the FieldOptions for a given struct field, or null if not annotated.
 pub fn getFieldOptions(comptime T: type, comptime field_name: []const u8) ?FieldOptions {
     if (!@hasDecl(T, "_fields")) return null;

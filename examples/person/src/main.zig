@@ -48,12 +48,12 @@ pub fn main(init: std.process.Init) !void {
     };
 
     // Encode directly to file
-    try Person.encodeToFile(person, filename, io);
+    try Person.encodeToFile(person, filename, io, .{});
     try stdout.print("Wrote {d} bytes to {s}\n", .{ Person.encodedSize(person), filename });
     try stdout.flush();
 
     // Decode directly from file
-    const decoded = try Person.decodeFromFile(filename, io, init.gpa);
+    const decoded = try Person.decodeFromFile(filename, io, init.gpa, .{});
     defer Person.deinit(decoded, init.gpa);
 
     try stdout.print("Read back from {s}\n\n", .{filename});
